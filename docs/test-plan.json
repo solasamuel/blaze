@@ -1,0 +1,388 @@
+{
+  "$schema": "https://blaze.dev/schemas/test-plan-1.0.json",
+  "product": "blaze",
+  "documentVersion": "1.0",
+  "lastUpdated": "2026-06-14",
+  "author": "Sola Samuel",
+  "links": {
+    "productBacklog": "./product-backlog.json",
+    "architecture": "./software-architecture.md"
+  },
+  "principles": {
+    "FIRST": {
+      "description": "Qualities every unit test in this plan must hold.",
+      "Fast": "Tests run in milliseconds — no real network. HTTP behaviour is exercised with httptest.Server on localhost.",
+      "Independent": "No shared state or ordering between tests. Each test builds its own RequestSpec, server, and channels.",
+      "Repeatable": "Deterministic across machines and runs. No reliance on wall-clock thresholds for assertions on correctness; timing-sensitive cases use generous, stable bounds.",
+      "SelfValidating": "Each test asserts a boolean pass/fail with no manual inspection of output.",
+      "Timely": "Tests are written alongside (or before) the feature in the same commit, per the build plan."
+    },
+    "BOC": {
+      "description": "Boundary / Off-by-one / Corner — the case-selection heuristic. Every testable feature enumerates: a Boundary case (edges of valid input), an Off-by-one case (n-1, n, n+1 around limits and index math), and a Corner case (empty, zero, error, concurrent, or otherwise degenerate input).",
+      "B": "Boundary — smallest/largest valid input, exact limits.",
+      "O": "Off-by-one — the classic index and count errors (len-1 vs len, inclusive vs exclusive).",
+      "C": "Corner — empty/nil/zero, error paths, concurrency, and unusual-but-legal combinations."
+    }
+  },
+  "coverageMatrix": {
+    "EP-1": ["TC-1.1.a", "TC-1.1.b", "TC-1.1.c", "TC-1.2.a", "TC-1.2.b", "TC-1.2.c", "TC-1.3.a", "TC-1.3.b", "TC-1.3.c", "TC-1.4.a", "TC-1.4.b"],
+    "EP-2": ["TC-2.1.a", "TC-2.1.b", "TC-2.1.c", "TC-2.1.d", "TC-2.2.a", "TC-2.2.b"],
+    "EP-3": ["TC-3.1.a", "TC-3.1.b", "TC-3.2.a", "TC-3.2.b"],
+    "EP-4": ["TC-4.1.a", "TC-4.1.b", "TC-4.1.c", "TC-4.1.d", "TC-4.2.a", "TC-4.2.b", "TC-4.3.a", "TC-4.3.b", "TC-4.4.a"],
+    "EP-5": ["TC-5.1.a", "TC-5.2.a"]
+  },
+  "testCases": [
+    {
+      "id": "TC-1.1.a",
+      "feature": "F-1.1",
+      "title": "Defaults applied when optional flags omitted",
+      "boc": "B",
+      "type": "unit",
+      "given": "Only --url is supplied.",
+      "when": "Flags are parsed into a RequestSpec.",
+      "then": "concurrency=10, requests=100, method=GET, timeout=10s.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.1.b",
+      "feature": "F-1.1",
+      "title": "Missing --url is rejected",
+      "boc": "C",
+      "type": "unit",
+      "given": "No --url flag.",
+      "when": "Parsing/validation runs.",
+      "then": "A non-nil error is returned and no run starts.",
+      "first": ["Fast", "Independent", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.1.c",
+      "feature": "F-1.1",
+      "title": "Repeatable --header flags accumulate",
+      "boc": "O",
+      "type": "unit",
+      "given": "--header passed twice (e.g. one then two headers).",
+      "when": "Flags are parsed.",
+      "then": "RequestSpec.Headers contains exactly the N headers given — not N-1, not N+1.",
+      "first": ["Fast", "Independent", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.2.a",
+      "feature": "F-1.2",
+      "title": "Worker emits one result per job and closes body",
+      "boc": "B",
+      "type": "unit",
+      "given": "A single job and an httptest.Server returning 200.",
+      "when": "worker() processes the job.",
+      "then": "Exactly one Result with StatusCode 200 and nil Err is sent; the response body is closed.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.2.b",
+      "feature": "F-1.2",
+      "title": "Worker exits when jobs channel closed empty",
+      "boc": "C",
+      "type": "unit",
+      "given": "A jobs channel closed before any job is sent.",
+      "when": "worker() ranges over jobs.",
+      "then": "worker() returns immediately, calls wg.Done(), sends zero results.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.2.c",
+      "feature": "F-1.2",
+      "title": "Worker reports transport error as Result.Err",
+      "boc": "C",
+      "type": "unit",
+      "given": "A target URL whose server is closed/unreachable.",
+      "when": "worker() performs the request.",
+      "then": "A Result with non-nil Err and zero StatusCode is sent; the loop continues.",
+      "first": ["Fast", "Independent", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.3.a",
+      "feature": "F-1.3",
+      "title": "Every job produces exactly one collected result",
+      "boc": "B",
+      "type": "integration",
+      "given": "total=1000, concurrency=50, httptest.Server returning 200.",
+      "when": "run() executes.",
+      "then": "Summary.Total == 1000.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.3.b",
+      "feature": "F-1.3",
+      "title": "Single-worker, single-request path",
+      "boc": "O",
+      "type": "integration",
+      "given": "concurrency=1, total=1.",
+      "when": "run() executes.",
+      "then": "Exactly one result is collected and both channels close — proves the n=1 edge of the fan-out loop.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.3.c",
+      "feature": "F-1.3",
+      "title": "No goroutine leak after run returns",
+      "boc": "C",
+      "type": "integration",
+      "given": "A completed run under the race detector.",
+      "when": "run() returns and goroutines are sampled.",
+      "then": "Worker count returns to baseline; no -race report. (go test -race)",
+      "first": ["Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.4.a",
+      "feature": "F-1.4",
+      "title": "Errors counted separately from latencies",
+      "boc": "C",
+      "type": "unit",
+      "given": "A results channel pre-loaded with 2 errors and 3 successes.",
+      "when": "collect() drains it.",
+      "then": "Total=5, Errors=2, len(Latencies)=3; error results contribute no latency.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-1.4.b",
+      "feature": "F-1.4",
+      "title": "Collect terminates on closed channel",
+      "boc": "B",
+      "type": "unit",
+      "given": "A results channel that is closed after loading items.",
+      "when": "collect() ranges over it.",
+      "then": "collect() returns without blocking once the channel is drained.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-2.1.a",
+      "feature": "F-2.1",
+      "title": "Empty latency slice returns zero",
+      "boc": "C",
+      "type": "unit",
+      "given": "An empty sorted []time.Duration.",
+      "when": "percentile(sorted, 0.95) is called.",
+      "then": "Returns 0 and does not panic.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-2.1.b",
+      "feature": "F-2.1",
+      "title": "p50/p95/p99 select correct index (table-driven)",
+      "boc": "B",
+      "type": "unit",
+      "given": "A known sorted slice of 100 durations (1ms..100ms).",
+      "when": "percentile is evaluated at 0.50/0.95/0.99.",
+      "then": "Returns the values at indices floor(99*p) — table-driven []struct{ input, p, want }.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating", "Timely"]
+    },
+    {
+      "id": "TC-2.1.c",
+      "feature": "F-2.1",
+      "title": "Off-by-one: index uses len-1 not len",
+      "boc": "O",
+      "type": "unit",
+      "given": "A sorted slice of length n.",
+      "when": "percentile(sorted, 1.0) is called.",
+      "then": "Returns sorted[n-1] (the max), never indexing sorted[n] / out of range.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-2.1.d",
+      "feature": "F-2.1",
+      "title": "Single-element slice",
+      "boc": "B",
+      "type": "unit",
+      "given": "A one-element sorted slice.",
+      "when": "percentile is evaluated at any p in [0,1].",
+      "then": "Always returns that single element.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-2.2.a",
+      "feature": "F-2.2",
+      "title": "Throughput is requests over elapsed",
+      "boc": "B",
+      "type": "unit",
+      "given": "A Summary of 1000 successes over a known 0.8s elapsed.",
+      "when": "Throughput is computed.",
+      "then": "Throughput == 1250 req/s within rounding tolerance.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-2.2.b",
+      "feature": "F-2.2",
+      "title": "Error breakdown rendered per kind",
+      "boc": "C",
+      "type": "unit",
+      "given": "ErrorKinds = {timeout:2, refused:1}.",
+      "when": "The summary is formatted.",
+      "then": "Output lists both kinds with counts and a total of 3 errors.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-3.1.a",
+      "feature": "F-3.1",
+      "title": "Atomic counter reaches total under race detector",
+      "boc": "B",
+      "type": "concurrency",
+      "given": "concurrency=50, total=1000, run with -race.",
+      "when": "All workers increment the shared int64.",
+      "then": "Final atomic.LoadInt64 == 1000 with no race report.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-3.1.b",
+      "feature": "F-3.1",
+      "title": "Concurrent increments lose no updates",
+      "boc": "C",
+      "type": "concurrency",
+      "given": "Many goroutines each adding 1 a fixed number of times.",
+      "when": "All complete (wg.Wait).",
+      "then": "Counter equals goroutines × iterations exactly — proving lock-free correctness.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-3.2.a",
+      "feature": "F-3.2",
+      "title": "progressBar fill is proportional",
+      "boc": "O",
+      "type": "unit",
+      "given": "A fixed bar width W.",
+      "when": "progressBar(done, total) is called for done in {0, total/2, total-1, total}.",
+      "then": "Filled cells equal floor(W*done/total); the total-1 vs total step differs by the off-by-one boundary.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-3.2.b",
+      "feature": "F-3.2",
+      "title": "progressBar clamps at 100%",
+      "boc": "B",
+      "type": "unit",
+      "given": "done == total (and done > total guard).",
+      "when": "progressBar is rendered.",
+      "then": "Bar is fully filled and never exceeds width W.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.1.a",
+      "feature": "F-4.1",
+      "title": "DeadlineExceeded classified as timeout",
+      "boc": "B",
+      "type": "unit",
+      "given": "An error wrapping context.DeadlineExceeded.",
+      "when": "classifyError() runs.",
+      "then": "Returns \"timeout\" via errors.Is.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.1.b",
+      "feature": "F-4.1",
+      "title": "net.Error with Timeout() true classified as timeout",
+      "boc": "C",
+      "type": "unit",
+      "given": "A fake net.Error whose Timeout() returns true.",
+      "when": "classifyError() runs.",
+      "then": "Returns \"timeout\" via errors.As.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.1.c",
+      "feature": "F-4.1",
+      "title": "Connection refused classified as refused",
+      "boc": "C",
+      "type": "unit",
+      "given": "An error whose message contains \"connection refused\".",
+      "when": "classifyError() runs.",
+      "then": "Returns \"refused\".",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.1.d",
+      "feature": "F-4.1",
+      "title": "Unknown error falls through to other",
+      "boc": "C",
+      "type": "unit",
+      "given": "An arbitrary error matching no rule.",
+      "when": "classifyError() runs.",
+      "then": "Returns \"other\".",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.2.a",
+      "feature": "F-4.2",
+      "title": "Slow endpoint exceeding timeout errors out",
+      "boc": "O",
+      "type": "integration",
+      "given": "httptest.Server that sleeps longer than --timeout.",
+      "when": "A request runs with that timeout.",
+      "then": "Result.Err is non-nil and classifies as \"timeout\".",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.2.b",
+      "feature": "F-4.2",
+      "title": "Context cancelled on run return",
+      "boc": "C",
+      "type": "integration",
+      "given": "A run that completes normally.",
+      "when": "run() returns.",
+      "then": "The cancel func has fired (defer cancel) and ctx.Done() is closed.",
+      "first": ["Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.3.a",
+      "feature": "F-4.3",
+      "title": "Duration mode stops feeding when window elapses",
+      "boc": "B",
+      "type": "integration",
+      "given": "--duration set to a short window against a fast server.",
+      "when": "run() feeds jobs until the duration context fires.",
+      "then": "jobs is closed promptly after the window and run() returns; Summary.Total > 0.",
+      "first": ["Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.3.b",
+      "feature": "F-4.3",
+      "title": "Duration mode ignores --requests count",
+      "boc": "C",
+      "type": "integration",
+      "given": "Both --duration and a small --requests are provided.",
+      "when": "run() executes in duration mode.",
+      "then": "The run is bounded by time, not by the request count.",
+      "first": ["Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-4.4.a",
+      "feature": "F-4.4",
+      "title": "MaxIdleConnsPerHost equals concurrency",
+      "boc": "B",
+      "type": "unit",
+      "given": "concurrency=50.",
+      "when": "The http.Client/Transport is constructed.",
+      "then": "Transport.MaxIdleConnsPerHost == 50.",
+      "first": ["Fast", "Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-5.1.a",
+      "feature": "F-5.1",
+      "title": "README documents every flag",
+      "boc": "C",
+      "type": "doc",
+      "given": "The set of CLI flags from F-1.1.",
+      "when": "The README flag reference is reviewed (manually or via a doc-lint).",
+      "then": "Each flag appears with its default; the fan-out/fan-in diagram is present.",
+      "first": ["Independent", "Repeatable", "SelfValidating"]
+    },
+    {
+      "id": "TC-5.2.a",
+      "feature": "F-5.2",
+      "title": "go install produces a runnable binary",
+      "boc": "B",
+      "type": "smoke",
+      "given": "A clean GOPATH/bin.",
+      "when": "go install github.com/solasamuel/blaze@latest runs.",
+      "then": "A `blaze` binary exists and `blaze --help` exits zero.",
+      "first": ["Independent", "Repeatable", "SelfValidating"]
+    }
+  ]
+}

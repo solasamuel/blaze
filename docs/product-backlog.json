@@ -1,0 +1,262 @@
+{
+  "$schema": "https://blaze.dev/schemas/product-backlog-1.0.json",
+  "product": "blaze",
+  "tagline": "Concurrent HTTP load tester with live latency percentiles",
+  "documentVersion": "1.0",
+  "lastUpdated": "2026-06-14",
+  "author": "Sola Samuel",
+  "links": {
+    "testPlan": "./test-plan.json",
+    "architecture": "./software-architecture.md"
+  },
+  "legend": {
+    "epicId": "EP-<n>",
+    "featureId": "F-<epic>.<n>",
+    "priority": "MoSCoW — must | should | could | wont",
+    "estimate": "relative story points (Fibonacci)",
+    "status": "todo | in-progress | done"
+  },
+  "epics": [
+    {
+      "id": "EP-1",
+      "title": "Concurrent Request Engine",
+      "goal": "Fire N requests across a worker pool using the fan-out/fan-in pattern and collect every result without data races.",
+      "commit": "#1 — feat: concurrent worker pool with fan-out/fan-in and percentiles",
+      "buildPhase": "Evening 1",
+      "architectureRefs": ["2.1", "2.2", "2.3", "2.4"],
+      "features": [
+        {
+          "id": "F-1.1",
+          "title": "RequestSpec & CLI flag parsing",
+          "description": "Parse --url (required), --concurrency (default 10), --requests (default 100), --method, --body, --header (repeatable), --timeout (default 10s) into a RequestSpec.",
+          "priority": "must",
+          "estimate": 3,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "Missing --url exits non-zero with a usage message.",
+            "Repeatable --header flags accumulate into RequestSpec.Headers.",
+            "Defaults apply when flags are omitted."
+          ],
+          "testCaseRefs": ["TC-1.1.a", "TC-1.1.b", "TC-1.1.c"]
+        },
+        {
+          "id": "F-1.2",
+          "title": "Worker goroutine with directional channels",
+          "description": "Implement worker() consuming jobs <-chan Job and emitting results chan<- Result; performs the HTTP call, measures latency, always closes the response body, defers wg.Done().",
+          "priority": "must",
+          "estimate": 5,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "jobs is receive-only and results is send-only at the type level.",
+            "Response body is closed on every success path to allow connection reuse.",
+            "Worker exits cleanly when the jobs channel is closed and drained."
+          ],
+          "testCaseRefs": ["TC-1.2.a", "TC-1.2.b", "TC-1.2.c"]
+        },
+        {
+          "id": "F-1.3",
+          "title": "Coordinator fan-out / fan-in",
+          "description": "run() starts N workers, feeds jobs in a separate goroutine that closes jobs, and a second goroutine that wg.Wait()s then closes results, while the main goroutine collects.",
+          "priority": "must",
+          "estimate": 5,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "Exactly `total` jobs are fed and exactly `total` results are collected.",
+            "No goroutine leaks after run() returns (all workers exit, both channels close).",
+            "Buffered channels sized to concurrency."
+          ],
+          "testCaseRefs": ["TC-1.3.a", "TC-1.3.b", "TC-1.3.c"]
+        },
+        {
+          "id": "F-1.4",
+          "title": "Result collection & summary aggregation",
+          "description": "collect() ranges over results, tallies totals/errors, classifies error kinds, and accumulates latencies into a Summary.",
+          "priority": "must",
+          "estimate": 3,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "Summary.Total equals successes plus errors.",
+            "Error results contribute to ErrorKinds but not to Latencies.",
+            "Collection terminates when results is closed."
+          ],
+          "testCaseRefs": ["TC-1.4.a", "TC-1.4.b"]
+        }
+      ]
+    },
+    {
+      "id": "EP-2",
+      "title": "Latency Statistics",
+      "goal": "Turn raw latencies into the percentiles, throughput, and error breakdown a reviewer cares about.",
+      "commit": "#1 — feat: concurrent worker pool with fan-out/fan-in and percentiles",
+      "buildPhase": "Evening 1",
+      "architectureRefs": ["3.1"],
+      "features": [
+        {
+          "id": "F-2.1",
+          "title": "Percentile calculation",
+          "description": "percentile(sorted, p) returns the value at index (len-1)*p in the sorted slice; compute p50/p95/p99/max.",
+          "priority": "must",
+          "estimate": 3,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "Empty input returns 0 rather than panicking.",
+            "p50/p95/p99 select the correct index on a known sorted slice.",
+            "max equals the last element of the sorted slice."
+          ],
+          "testCaseRefs": ["TC-2.1.a", "TC-2.1.b", "TC-2.1.c", "TC-2.1.d"]
+        },
+        {
+          "id": "F-2.2",
+          "title": "Throughput & summary formatting",
+          "description": "Compute throughput as requests/elapsed and render the final summary: latency percentiles, throughput, and error breakdown by kind.",
+          "priority": "must",
+          "estimate": 2,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "Throughput equals total successful requests divided by wall-clock elapsed.",
+            "Error breakdown lists each kind with its count.",
+            "Output matches the layout shown in the product overview."
+          ],
+          "testCaseRefs": ["TC-2.2.a", "TC-2.2.b"]
+        }
+      ]
+    },
+    {
+      "id": "EP-3",
+      "title": "Live Terminal Experience",
+      "goal": "Show real-time progress and stats during a run without scrolling the terminal.",
+      "commit": "#2 — feat: live progress, error classification, duration mode",
+      "buildPhase": "Evening 2",
+      "architectureRefs": ["3.2"],
+      "features": [
+        {
+          "id": "F-3.1",
+          "title": "Atomic completion counter",
+          "description": "A shared int64 incremented with atomic.AddInt64 by every worker after each request; read with atomic.LoadInt64.",
+          "priority": "must",
+          "estimate": 2,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "Counter is updated lock-free with sync/atomic.",
+            "Final counter value equals total requests under -race.",
+            "No mutex is used for the counter."
+          ],
+          "testCaseRefs": ["TC-3.1.a", "TC-3.1.b"]
+        },
+        {
+          "id": "F-3.2",
+          "title": "Carriage-return progress bar",
+          "description": "A progress goroutine on a 100ms ticker reads the atomic counter and overwrites the current line with \\r, drawing a bar and done/total.",
+          "priority": "must",
+          "estimate": 3,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "progressBar(done, total) renders proportional fill and clamps at 100%.",
+            "Display updates on the same terminal line (no scroll).",
+            "Progress goroutine stops cleanly when the run ends."
+          ],
+          "testCaseRefs": ["TC-3.2.a", "TC-3.2.b"]
+        }
+      ]
+    },
+    {
+      "id": "EP-4",
+      "title": "Resilience & Run Modes",
+      "goal": "Classify failures precisely and support duration-based runs in addition to fixed request counts.",
+      "commit": "#2 — feat: live progress, error classification, duration mode",
+      "buildPhase": "Evening 2",
+      "architectureRefs": ["2.4", "3.3"],
+      "features": [
+        {
+          "id": "F-4.1",
+          "title": "Error classification",
+          "description": "classifyError() maps errors to kinds using errors.Is(context.DeadlineExceeded), errors.As(net.Error)+Timeout(), and a connection-refused check, defaulting to \"other\".",
+          "priority": "must",
+          "estimate": 3,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "context.DeadlineExceeded classifies as \"timeout\".",
+            "A net.Error whose Timeout() is true classifies as \"timeout\".",
+            "Connection-refused classifies as \"refused\"; unknown errors as \"other\"."
+          ],
+          "testCaseRefs": ["TC-4.1.a", "TC-4.1.b", "TC-4.1.c", "TC-4.1.d"]
+        },
+        {
+          "id": "F-4.2",
+          "title": "Per-request timeout via context",
+          "description": "Each request is built with http.NewRequestWithContext and bounded by --timeout via the http.Client.Timeout and a cancelable context.",
+          "priority": "must",
+          "estimate": 2,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "A slow endpoint exceeding --timeout produces a timeout-classified error.",
+            "The context is cancelled (defer cancel) when run() returns."
+          ],
+          "testCaseRefs": ["TC-4.2.a", "TC-4.2.b"]
+        },
+        {
+          "id": "F-4.3",
+          "title": "Duration mode",
+          "description": "When --duration is set, feed jobs in a loop until a context timeout fires, then close jobs — running for time instead of a fixed count.",
+          "priority": "should",
+          "estimate": 5,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "--duration and --requests are mutually understood; duration takes over feeding.",
+            "Feeding stops and jobs closes promptly when the duration elapses.",
+            "Summary reflects the actual number of requests completed in the window."
+          ],
+          "testCaseRefs": ["TC-4.3.a", "TC-4.3.b"]
+        },
+        {
+          "id": "F-4.4",
+          "title": "Connection pool tuning",
+          "description": "Configure http.Transport.MaxIdleConnsPerHost = concurrency so keep-alive connections are reused across requests.",
+          "priority": "should",
+          "estimate": 2,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "MaxIdleConnsPerHost equals the configured concurrency.",
+            "Response bodies are drained/closed so connections return to the pool."
+          ],
+          "testCaseRefs": ["TC-4.4.a"]
+        }
+      ]
+    },
+    {
+      "id": "EP-5",
+      "title": "Distribution & Documentation",
+      "goal": "Ship blaze as an installable, well-documented tool that signals Go concurrency competence.",
+      "commit": "#2 — feat: live progress, error classification, duration mode",
+      "buildPhase": "Evening 2",
+      "architectureRefs": ["2.1"],
+      "features": [
+        {
+          "id": "F-5.1",
+          "title": "README with concurrency model",
+          "description": "Usage examples, full flag reference, and an explanation of the fan-out/fan-in concurrency model with the diagram.",
+          "priority": "should",
+          "estimate": 2,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "README documents every flag with its default.",
+            "README includes the fan-out/fan-in diagram and a comparison to hey/vegeta/k6."
+          ],
+          "testCaseRefs": ["TC-5.1.a"]
+        },
+        {
+          "id": "F-5.2",
+          "title": "go install support",
+          "description": "Module path github.com/solasamuel/blaze with a main package installable via `go install ...@latest`.",
+          "priority": "could",
+          "estimate": 1,
+          "status": "todo",
+          "acceptanceCriteria": [
+            "go install github.com/solasamuel/blaze@latest produces a runnable `blaze` binary."
+          ],
+          "testCaseRefs": ["TC-5.2.a"]
+        }
+      ]
+    }
+  ]
+}
