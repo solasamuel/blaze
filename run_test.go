@@ -27,7 +27,16 @@ func startWorker(ctx context.Context, jobs chan Job, results chan Result, spec R
 	var wg sync.WaitGroup
 	var completed int64
 	wg.Add(1)
-	go worker(ctx, jobs, results, &http.Client{Timeout: 5 * time.Second}, spec, &completed, &wg)
+	go worker(workerDeps{
+		ctx:       ctx,
+		jobs:      jobs,
+		results:   results,
+		client:    &http.Client{Timeout: 5 * time.Second},
+		req:       spec,
+		timeout:   5 * time.Second,
+		completed: &completed,
+		wg:        &wg,
+	})
 	return &wg
 }
 
@@ -141,4 +150,54 @@ func TestRun_NoGoroutineLeak(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Errorf("goroutines did not return to baseline: before=%d after=%d", before, runtimeNumGoroutine())
+}
+
+// TC-4.2.a — a slow endpoint exceeding the timeout produces a timeout-classified
+// error.
+func TestRun_SlowEndpointTimesOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	s := run(specFor(srv.URL), 2, 4, 100*time.Millisecond)
+	if s.Errors != 4 {
+		t.Fatalf("Errors = %d, want 4 (all timed out)", s.Errors)
+	}
+	if got := s.ErrorKinds[errTimeout]; got != 4 {
+		t.Errorf("timeout errors = %d, want 4 (kinds=%v)", got, s.ErrorKinds)
+	}
+}
+
+// TC-4.2.b — each request is built with a context that is cancelled when run
+// returns, so the server observes cancellation rather than a leaked request.
+func TestRun_RequestContextCancelledOnReturn(t *testing.T) {
+	cancelled := make(chan struct{}, 16)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Slow handler: returns only if the request context is cancelled.
+		select {
+		case <-time.After(3 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			select {
+			case cancelled <- struct{}{}:
+			default:
+			}
+		}
+	}))
+	defer srv.Close()
+
+	// Short per-request timeout: requests time out, cancelling their contexts.
+	_ = run(specFor(srv.URL), 2, 2, 100*time.Millisecond)
+
+	select {
+	case <-cancelled:
+		// server saw at least one cancelled request context — good.
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never observed a cancelled request context")
+	}
 }

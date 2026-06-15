@@ -25,7 +25,16 @@ func TestWorker_CounterReachesTotal(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
-		go worker(context.Background(), jobs, results, client, specFor(srv.URL), &completed, &wg)
+		go worker(workerDeps{
+			ctx:       context.Background(),
+			jobs:      jobs,
+			results:   results,
+			client:    client,
+			req:       specFor(srv.URL),
+			timeout:   5 * time.Second,
+			completed: &completed,
+			wg:        &wg,
+		})
 	}
 	for i := 0; i < total; i++ {
 		jobs <- Job{ID: i}

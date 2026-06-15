@@ -10,49 +10,58 @@ import (
 	"time"
 )
 
-// worker consumes jobs, issues one HTTP request per job, and emits a Result.
-//
-// Channel directions are constrained at the type level: jobs is receive-only
-// and results is send-only, so the compiler rejects sending on the wrong one.
-// completed is a shared lock-free counter incremented once per finished request
-// (success or error) so the progress goroutine can read it without contending
-// for a lock.
-func worker(
-	ctx context.Context,
-	jobs <-chan Job,
-	results chan<- Result,
-	client *http.Client,
-	req RequestSpec,
-	completed *int64,
-	wg *sync.WaitGroup,
-) {
-	defer wg.Done()
+// workerDeps bundles everything a worker needs, keeping the goroutine signature
+// small and the shared state explicit. Channel directions are constrained at the
+// type level: jobs is receive-only and results is send-only, so the compiler
+// rejects sending on the wrong one.
+type workerDeps struct {
+	ctx       context.Context
+	jobs      <-chan Job    // receive-only
+	results   chan<- Result // send-only
+	client    *http.Client
+	req       RequestSpec
+	timeout   time.Duration
+	completed *int64 // lock-free counter, incremented once per finished request
+	wg        *sync.WaitGroup
+}
 
-	for range jobs { // ends when jobs is closed and drained
-		start := time.Now()
+// worker consumes jobs and issues one HTTP request per job until jobs is closed.
+func worker(d workerDeps) {
+	defer d.wg.Done()
 
-		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, req.Body())
-		if err != nil {
-			results <- Result{Latency: time.Since(start), Err: err}
-			atomic.AddInt64(completed, 1)
-			continue
-		}
-		for k, v := range req.Headers {
-			httpReq.Header.Set(k, v)
-		}
-
-		resp, err := client.Do(httpReq)
-		latency := time.Since(start)
-
-		if err != nil {
-			results <- Result{Latency: latency, Err: err}
-			atomic.AddInt64(completed, 1)
-			continue
-		}
-		resp.Body.Close() // CRITICAL: close to return the connection to the pool
-		results <- Result{Latency: latency, StatusCode: resp.StatusCode}
-		atomic.AddInt64(completed, 1)
+	for range d.jobs { // ends when jobs is closed and drained
+		d.doRequest()
 	}
+}
+
+// doRequest performs a single request and emits its Result. It is a method so
+// the per-request context cancel can be deferred and released on every path.
+func (d workerDeps) doRequest() {
+	// Per-request deadline derived from the run context: cancelling the run (or
+	// hitting --timeout) aborts the in-flight request. errors.Is then sees
+	// context.DeadlineExceeded for a precise "timeout" classification.
+	reqCtx, cancel := context.WithTimeout(d.ctx, d.timeout)
+	defer cancel()
+	defer atomic.AddInt64(d.completed, 1)
+
+	start := time.Now()
+	httpReq, err := http.NewRequestWithContext(reqCtx, d.req.Method, d.req.URL, d.req.Body())
+	if err != nil {
+		d.results <- Result{Latency: time.Since(start), Err: err}
+		return
+	}
+	for k, v := range d.req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	resp, err := d.client.Do(httpReq)
+	latency := time.Since(start)
+	if err != nil {
+		d.results <- Result{Latency: latency, Err: err}
+		return
+	}
+	resp.Body.Close() // CRITICAL: close to return the connection to the pool
+	d.results <- Result{Latency: latency, StatusCode: resp.StatusCode}
 }
 
 // run executes a fixed-count load test using the fan-out/fan-in pattern and
@@ -78,7 +87,16 @@ func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary
 	// fan-out: start N workers
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go worker(ctx, jobs, results, client, req, &completed, &wg)
+		go worker(workerDeps{
+			ctx:       ctx,
+			jobs:      jobs,
+			results:   results,
+			client:    client,
+			req:       req,
+			timeout:   timeout,
+			completed: &completed,
+			wg:        &wg,
+		})
 	}
 
 	// feeder owns the send side of jobs: feed all, then close.
