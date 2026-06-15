@@ -95,20 +95,5 @@ func main() {
 	s := run(cfg.spec, cfg.concurrency, cfg.requests, cfg.timeout)
 	elapsed := time.Since(start)
 
-	printSummary(s, elapsed)
-}
-
-// printSummary prints the basic end-of-run report. Epic 2/3 enrich this with
-// throughput formatting and a live display.
-func printSummary(s Summary, elapsed time.Duration) {
-	p := computePercentiles(s.Latencies)
-	fmt.Printf("\nLatency:   p50  %v   p95  %v   p99  %v   max  %v\n",
-		p.P50, p.P95, p.P99, p.Max,
-	)
-	if elapsed > 0 {
-		fmt.Printf("Throughput: %.0f req/s\n",
-			float64(len(s.Latencies))/elapsed.Seconds())
-	}
-	fmt.Printf("Errors:     %d (%.1f%%)\n",
-		s.Errors, 100*float64(s.Errors)/float64(max(s.Total, 1)))
+	fmt.Print(formatSummary(s, elapsed))
 }
