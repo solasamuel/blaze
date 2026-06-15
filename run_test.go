@@ -97,3 +97,47 @@ func TestWorker_TransportError(t *testing.T) {
 		t.Errorf("status = %d, want 0", r.StatusCode)
 	}
 }
+
+// TC-1.3.a — every job produces exactly one collected result.
+func TestRun_CountMatches(t *testing.T) {
+	srv := okServer()
+	defer srv.Close()
+
+	s := run(specFor(srv.URL), 50, 1000, 5*time.Second)
+	if s.Total != 1000 {
+		t.Fatalf("Total = %d, want 1000", s.Total)
+	}
+	if len(s.Latencies) != 1000 {
+		t.Errorf("Latencies = %d, want 1000", len(s.Latencies))
+	}
+}
+
+// TC-1.3.b — n=1 edge of the fan-out loop: single worker, single request.
+func TestRun_SingleWorkerSingleRequest(t *testing.T) {
+	srv := okServer()
+	defer srv.Close()
+
+	s := run(specFor(srv.URL), 1, 1, 5*time.Second)
+	if s.Total != 1 {
+		t.Fatalf("Total = %d, want 1", s.Total)
+	}
+}
+
+// TC-1.3.c — no goroutine leak after run returns (run under `go test -race`).
+func TestRun_NoGoroutineLeak(t *testing.T) {
+	srv := okServer()
+	defer srv.Close()
+
+	before := runtimeNumGoroutine()
+	_ = run(specFor(srv.URL), 10, 200, 5*time.Second)
+
+	// allow scheduled goroutines to wind down
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtimeNumGoroutine() <= before {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("goroutines did not return to baseline: before=%d after=%d", before, runtimeNumGoroutine())
+}

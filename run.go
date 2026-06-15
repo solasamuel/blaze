@@ -44,3 +44,45 @@ func worker(
 		results <- Result{Latency: latency, StatusCode: resp.StatusCode}
 	}
 }
+
+// run executes a fixed-count load test using the fan-out/fan-in pattern and
+// returns the aggregated Summary.
+func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary {
+	jobs := make(chan Job, concurrency)
+	results := make(chan Result, concurrency)
+	var wg sync.WaitGroup
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	transport := &http.Transport{
+		MaxIdleConnsPerHost: concurrency, // reuse keep-alive connections
+	}
+	// Release pooled idle connections (and their background goroutines) when the
+	// run ends, so run() owns no resources after it returns.
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: timeout, Transport: transport}
+
+	// fan-out: start N workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go worker(ctx, jobs, results, client, req, &wg)
+	}
+
+	// feeder owns the send side of jobs: feed all, then close.
+	go func() {
+		for i := 0; i < total; i++ {
+			jobs <- Job{ID: i}
+		}
+		close(jobs)
+	}()
+
+	// closer owns the send side of results: once every worker is done, close.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// fan-in: collect on the main goroutine until results is closed.
+	return collect(results)
+}
