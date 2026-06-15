@@ -25,8 +25,9 @@ func specFor(url string) RequestSpec {
 
 func startWorker(ctx context.Context, jobs chan Job, results chan Result, spec RequestSpec) *sync.WaitGroup {
 	var wg sync.WaitGroup
+	var completed int64
 	wg.Add(1)
-	go worker(ctx, jobs, results, &http.Client{Timeout: 5 * time.Second}, spec, &wg)
+	go worker(ctx, jobs, results, &http.Client{Timeout: 5 * time.Second}, spec, &completed, &wg)
 	return &wg
 }
 
