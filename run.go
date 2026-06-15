@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,12 +13,16 @@ import (
 //
 // Channel directions are constrained at the type level: jobs is receive-only
 // and results is send-only, so the compiler rejects sending on the wrong one.
+// completed is a shared lock-free counter incremented once per finished request
+// (success or error) so the progress goroutine can read it without contending
+// for a lock.
 func worker(
 	ctx context.Context,
 	jobs <-chan Job,
 	results chan<- Result,
 	client *http.Client,
 	req RequestSpec,
+	completed *int64,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
@@ -28,6 +33,7 @@ func worker(
 		httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, req.Body())
 		if err != nil {
 			results <- Result{Latency: time.Since(start), Err: err}
+			atomic.AddInt64(completed, 1)
 			continue
 		}
 		for k, v := range req.Headers {
@@ -39,10 +45,12 @@ func worker(
 
 		if err != nil {
 			results <- Result{Latency: latency, Err: err}
+			atomic.AddInt64(completed, 1)
 			continue
 		}
 		resp.Body.Close() // CRITICAL: close to return the connection to the pool
 		results <- Result{Latency: latency, StatusCode: resp.StatusCode}
+		atomic.AddInt64(completed, 1)
 	}
 }
 
@@ -64,10 +72,12 @@ func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Timeout: timeout, Transport: transport}
 
+	var completed int64 // lock-free, shared by all workers and the progress loop
+
 	// fan-out: start N workers
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go worker(ctx, jobs, results, client, req, &wg)
+		go worker(ctx, jobs, results, client, req, &completed, &wg)
 	}
 
 	// feeder owns the send side of jobs: feed all, then close.
