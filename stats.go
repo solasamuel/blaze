@@ -37,15 +37,6 @@ func computePercentiles(sorted []time.Duration) Percentiles {
 	}
 }
 
-// classifyError maps an error to a coarse kind. Epic 4 (F-4.1) expands this with
-// errors.Is/errors.As rules; for now anything non-nil is "other".
-func classifyError(err error) string {
-	if err == nil {
-		return ""
-	}
-	return "other"
-}
-
 // throughput is successful-or-total requests per second over wall-clock elapsed.
 // Returns 0 when no time has elapsed to avoid a divide-by-zero.
 func throughput(count int, elapsed time.Duration) float64 {

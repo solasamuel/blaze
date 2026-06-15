@@ -52,3 +52,14 @@ func TestParseArgs_RepeatableHeaders(t *testing.T) {
 		t.Errorf("X-Test = %q", cfg.spec.Headers["X-Test"])
 	}
 }
+
+// --duration flag parses into config.
+func TestParseArgs_Duration(t *testing.T) {
+	cfg, err := parseArgs([]string{"--url", "http://example.com", "--duration", "5s"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.duration != 5*time.Second {
+		t.Errorf("duration = %v, want 5s", cfg.duration)
+	}
+}
