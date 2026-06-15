@@ -75,6 +75,16 @@ type runOpts struct {
 	Timeout     time.Duration
 }
 
+// newTransport builds the shared HTTP transport. MaxIdleConnsPerHost is set to
+// the worker concurrency so every worker can keep a warm keep-alive connection
+// to the target host instead of dialling a fresh TCP/TLS connection per request
+// (workers must close response bodies for connections to return to the pool).
+func newTransport(concurrency int) *http.Transport {
+	return &http.Transport{
+		MaxIdleConnsPerHost: concurrency,
+	}
+}
+
 // run executes a load test using the fan-out/fan-in pattern and returns the
 // aggregated Summary. It runs for a fixed request count, or for a fixed
 // duration when o.Duration > 0.
@@ -86,9 +96,7 @@ func run(o runOpts) Summary {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	transport := &http.Transport{
-		MaxIdleConnsPerHost: o.Concurrency, // reuse keep-alive connections
-	}
+	transport := newTransport(o.Concurrency)
 	// Release pooled idle connections (and their background goroutines) when the
 	// run ends, so run() owns no resources after it returns.
 	defer transport.CloseIdleConnections()

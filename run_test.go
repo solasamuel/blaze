@@ -245,3 +245,12 @@ func TestRun_DurationModeIgnoresRequests(t *testing.T) {
 		t.Errorf("Total = %d, expected duration mode to far exceed the 3-request count", s.Total)
 	}
 }
+
+// TC-4.4.a — the transport reuses connections: MaxIdleConnsPerHost == concurrency.
+func TestNewTransport_MaxIdleConnsPerHost(t *testing.T) {
+	for _, c := range []int{1, 10, 50} {
+		if got := newTransport(c).MaxIdleConnsPerHost; got != c {
+			t.Errorf("newTransport(%d).MaxIdleConnsPerHost = %d, want %d", c, got, c)
+		}
+	}
+}
