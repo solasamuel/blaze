@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
@@ -85,4 +86,23 @@ func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary
 
 	// fan-in: collect on the main goroutine until results is closed.
 	return collect(results)
+}
+
+// collect drains the results channel into a Summary. It is the single reader,
+// so the Summary needs no locking.
+func collect(results <-chan Result) Summary {
+	s := Summary{ErrorKinds: make(map[string]int)}
+	for r := range results {
+		s.Total++
+		if r.Err != nil {
+			s.Errors++
+			s.ErrorKinds[classifyError(r.Err)]++
+			continue
+		}
+		s.Latencies = append(s.Latencies, r.Latency)
+	}
+	sort.Slice(s.Latencies, func(i, j int) bool {
+		return s.Latencies[i] < s.Latencies[j]
+	})
+	return s
 }
