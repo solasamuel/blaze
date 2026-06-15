@@ -34,38 +34,53 @@ type config struct {
 	timeout     time.Duration
 }
 
+// boundFlags holds pointers to every parsed flag value. newFlagSet is the single
+// source of truth for the flag list (used by parseArgs and the README doc test).
+type boundFlags struct {
+	url, method, body     *string
+	concurrency, requests *int
+	duration, timeout     *time.Duration
+	headers               *headerFlag
+}
+
+func newFlagSet() (*flag.FlagSet, *boundFlags) {
+	fs := flag.NewFlagSet("blaze", flag.ContinueOnError)
+	b := &boundFlags{
+		url:         fs.String("url", "", "target endpoint (required)"),
+		concurrency: fs.Int("concurrency", 10, "number of concurrent workers"),
+		requests:    fs.Int("requests", 100, "total number of requests to send"),
+		duration:    fs.Duration("duration", 0, "run for a fixed duration instead of a request count"),
+		method:      fs.String("method", "GET", "HTTP method"),
+		body:        fs.String("body", "", "request body"),
+		timeout:     fs.Duration("timeout", 10*time.Second, "per-request timeout"),
+		headers:     &headerFlag{},
+	}
+	fs.Var(b.headers, "header", "request header 'Key: Value' (repeatable)")
+	return fs, b
+}
+
 // parseArgs parses argv (without the program name) into a config. It returns an
 // error rather than exiting so it can be unit-tested.
 func parseArgs(args []string) (config, error) {
-	fs := flag.NewFlagSet("blaze", flag.ContinueOnError)
-
-	url := fs.String("url", "", "target endpoint (required)")
-	concurrency := fs.Int("concurrency", 10, "number of concurrent workers")
-	requests := fs.Int("requests", 100, "total number of requests to send")
-	duration := fs.Duration("duration", 0, "run for a fixed duration instead of a request count")
-	method := fs.String("method", "GET", "HTTP method")
-	body := fs.String("body", "", "request body")
-	timeout := fs.Duration("timeout", 10*time.Second, "per-request timeout")
-	var headers headerFlag
-	fs.Var(&headers, "header", "request header 'Key: Value' (repeatable)")
+	fs, b := newFlagSet()
 
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
-	if *url == "" {
+	if *b.url == "" {
 		return config{}, errors.New("--url is required")
 	}
 
-	hdr := make(map[string]string, len(headers))
-	for _, h := range headers {
+	hdr := make(map[string]string, len(*b.headers))
+	for _, h := range *b.headers {
 		k, v, _ := strings.Cut(h, ":")
 		hdr[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
 
-	bodyStr := *body
+	bodyStr := *b.body
 	spec := RequestSpec{
-		URL:     *url,
-		Method:  *method,
+		URL:     *b.url,
+		Method:  *b.method,
 		Headers: hdr,
 		Body: func() io.Reader {
 			if bodyStr == "" {
@@ -77,10 +92,10 @@ func parseArgs(args []string) (config, error) {
 
 	return config{
 		spec:        spec,
-		concurrency: *concurrency,
-		requests:    *requests,
-		duration:    *duration,
-		timeout:     *timeout,
+		concurrency: *b.concurrency,
+		requests:    *b.requests,
+		duration:    *b.duration,
+		timeout:     *b.timeout,
 	}, nil
 }
 
