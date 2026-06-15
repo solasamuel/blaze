@@ -30,6 +30,7 @@ type config struct {
 	spec        RequestSpec
 	concurrency int
 	requests    int
+	duration    time.Duration
 	timeout     time.Duration
 }
 
@@ -41,6 +42,7 @@ func parseArgs(args []string) (config, error) {
 	url := fs.String("url", "", "target endpoint (required)")
 	concurrency := fs.Int("concurrency", 10, "number of concurrent workers")
 	requests := fs.Int("requests", 100, "total number of requests to send")
+	duration := fs.Duration("duration", 0, "run for a fixed duration instead of a request count")
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("body", "", "request body")
 	timeout := fs.Duration("timeout", 10*time.Second, "per-request timeout")
@@ -77,6 +79,7 @@ func parseArgs(args []string) (config, error) {
 		spec:        spec,
 		concurrency: *concurrency,
 		requests:    *requests,
+		duration:    *duration,
 		timeout:     *timeout,
 	}, nil
 }
@@ -88,11 +91,22 @@ func main() {
 		os.Exit(2)
 	}
 
-	fmt.Printf("Running %d requests with %d concurrent workers...\n",
-		cfg.requests, cfg.concurrency)
+	if cfg.duration > 0 {
+		fmt.Printf("Running for %v with %d concurrent workers...\n",
+			cfg.duration, cfg.concurrency)
+	} else {
+		fmt.Printf("Running %d requests with %d concurrent workers...\n",
+			cfg.requests, cfg.concurrency)
+	}
 
 	start := time.Now()
-	s := run(cfg.spec, cfg.concurrency, cfg.requests, cfg.timeout)
+	s := run(runOpts{
+		Req:         cfg.spec,
+		Concurrency: cfg.concurrency,
+		Requests:    cfg.requests,
+		Duration:    cfg.duration,
+		Timeout:     cfg.timeout,
+	})
 	elapsed := time.Since(start)
 
 	fmt.Print(formatSummary(s, elapsed))

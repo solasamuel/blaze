@@ -36,10 +36,32 @@ func progressBar(done, total, width int) string {
 // renderProgress writes a single in-place progress line to w using \r.
 func renderProgress(w io.Writer, done, total int) {
 	pct := 0.0
-	if total > 0 {
-		pct = 100 * float64(done) / float64(total)
+	if total <= 0 {
+		// Duration mode: the total is unknown, so report a live count with an
+		// animated bar rather than a meaningless percentage.
+		fmt.Fprintf(w, "\r  [%s] %d done", spinnerBar(done, barWidth), done)
+		return
 	}
+	pct = 100 * float64(done) / float64(total)
 	fmt.Fprintf(w, "\r  [%s] %d/%d   %.1f%%", progressBar(done, total, barWidth), done, total, pct)
+}
+
+// spinnerBar renders an indeterminate bar for unknown-total (duration) mode: a
+// short filled block that sweeps across the track as work progresses.
+func spinnerBar(done, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	const block = 4
+	pos := done % width
+	b := make([]rune, width)
+	for i := range b {
+		b[i] = barEmpty
+	}
+	for i := 0; i < block; i++ {
+		b[(pos+i)%width] = barFilled
+	}
+	return string(b)
 }
 
 // startProgress launches a goroutine that, every tickInterval, reads the shared

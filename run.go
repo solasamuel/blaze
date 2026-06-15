@@ -64,48 +64,55 @@ func (d workerDeps) doRequest() {
 	d.results <- Result{Latency: latency, StatusCode: resp.StatusCode}
 }
 
-// run executes a fixed-count load test using the fan-out/fan-in pattern and
-// returns the aggregated Summary.
-func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary {
-	jobs := make(chan Job, concurrency)
-	results := make(chan Result, concurrency)
+// runOpts configures a load-test run. Exactly one of Requests (count mode) or
+// Duration (duration mode) drives how long the run lasts; Duration takes
+// precedence when non-zero.
+type runOpts struct {
+	Req         RequestSpec
+	Concurrency int
+	Requests    int
+	Duration    time.Duration
+	Timeout     time.Duration
+}
+
+// run executes a load test using the fan-out/fan-in pattern and returns the
+// aggregated Summary. It runs for a fixed request count, or for a fixed
+// duration when o.Duration > 0.
+func run(o runOpts) Summary {
+	jobs := make(chan Job, o.Concurrency)
+	results := make(chan Result, o.Concurrency)
 	var wg sync.WaitGroup
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	transport := &http.Transport{
-		MaxIdleConnsPerHost: concurrency, // reuse keep-alive connections
+		MaxIdleConnsPerHost: o.Concurrency, // reuse keep-alive connections
 	}
 	// Release pooled idle connections (and their background goroutines) when the
 	// run ends, so run() owns no resources after it returns.
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Timeout: timeout, Transport: transport}
+	client := &http.Client{Timeout: o.Timeout, Transport: transport}
 
 	var completed int64 // lock-free, shared by all workers and the progress loop
 
 	// fan-out: start N workers
-	for i := 0; i < concurrency; i++ {
+	for i := 0; i < o.Concurrency; i++ {
 		wg.Add(1)
 		go worker(workerDeps{
 			ctx:       ctx,
 			jobs:      jobs,
 			results:   results,
 			client:    client,
-			req:       req,
-			timeout:   timeout,
+			req:       o.Req,
+			timeout:   o.Timeout,
 			completed: &completed,
 			wg:        &wg,
 		})
 	}
 
-	// feeder owns the send side of jobs: feed all, then close.
-	go func() {
-		for i := 0; i < total; i++ {
-			jobs <- Job{ID: i}
-		}
-		close(jobs)
-	}()
+	// feeder owns the send side of jobs and closes it when feeding is done.
+	go feedJobs(ctx, jobs, o)
 
 	// closer owns the send side of results: once every worker is done, close.
 	go func() {
@@ -113,13 +120,45 @@ func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary
 		close(results)
 	}()
 
-	// live progress: redraw from the atomic counter until the run completes.
-	stopProgress := startProgress(os.Stdout, &completed, total)
+	// live progress: redraw from the atomic counter until the run completes. In
+	// duration mode the total is unknown (0), so progress reports a live count.
+	progressTotal := o.Requests
+	if o.Duration > 0 {
+		progressTotal = 0
+	}
+	stopProgress := startProgress(os.Stdout, &completed, progressTotal)
 
 	// fan-in: collect on the main goroutine until results is closed.
 	s := collect(results)
 	stopProgress() // halt and paint the final frame before the summary prints
 	return s
+}
+
+// feedJobs sends jobs into the channel and closes it. In count mode it sends
+// exactly o.Requests jobs; in duration mode it sends until the window elapses
+// (a context deadline) or the run is cancelled, then closes.
+func feedJobs(ctx context.Context, jobs chan<- Job, o runOpts) {
+	defer close(jobs) // feeder owns the send side: it always closes.
+
+	if o.Duration > 0 {
+		deadline, cancel := context.WithTimeout(ctx, o.Duration)
+		defer cancel()
+		for i := 0; ; i++ {
+			select {
+			case <-deadline.Done():
+				return
+			case jobs <- Job{ID: i}:
+			}
+		}
+	}
+
+	for i := 0; i < o.Requests; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case jobs <- Job{ID: i}:
+		}
+	}
 }
 
 // collect drains the results channel into a Summary. It is the single reader,

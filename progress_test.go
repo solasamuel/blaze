@@ -147,3 +147,16 @@ func TestStartProgress_StopsCleanly(t *testing.T) {
 		t.Error("expected trailing newline after final frame")
 	}
 }
+
+// Duration mode (unknown total) reports a live count, not a percentage.
+func TestRenderProgress_UnknownTotal(t *testing.T) {
+	var buf bytes.Buffer
+	renderProgress(&buf, 42, 0)
+	out := buf.String()
+	if !strings.Contains(out, "42 done") {
+		t.Errorf("expected live count, got %q", out)
+	}
+	if strings.Contains(out, "%") {
+		t.Errorf("unknown-total line should not show a percentage, got %q", out)
+	}
+}
