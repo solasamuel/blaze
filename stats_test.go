@@ -93,3 +93,29 @@ func TestPercentile(t *testing.T) {
 		})
 	}
 }
+
+// TC-2.1.b (aggregate) — computePercentiles derives p50/p95/p99/max in one pass.
+func TestComputePercentiles(t *testing.T) {
+	hundred := make([]time.Duration, 100)
+	for i := range hundred {
+		hundred[i] = time.Duration(i+1) * time.Millisecond
+	}
+
+	got := computePercentiles(hundred)
+	want := Percentiles{
+		P50: 50 * time.Millisecond,
+		P95: 95 * time.Millisecond,
+		P99: 99 * time.Millisecond,
+		Max: 100 * time.Millisecond,
+	}
+	if got != want {
+		t.Errorf("computePercentiles = %+v, want %+v", got, want)
+	}
+}
+
+// Corner: empty input yields an all-zero distribution, no panic.
+func TestComputePercentiles_Empty(t *testing.T) {
+	if got := computePercentiles(nil); got != (Percentiles{}) {
+		t.Errorf("computePercentiles(nil) = %+v, want zero", got)
+	}
+}

@@ -101,11 +101,9 @@ func main() {
 // printSummary prints the basic end-of-run report. Epic 2/3 enrich this with
 // throughput formatting and a live display.
 func printSummary(s Summary, elapsed time.Duration) {
+	p := computePercentiles(s.Latencies)
 	fmt.Printf("\nLatency:   p50  %v   p95  %v   p99  %v   max  %v\n",
-		percentile(s.Latencies, 0.50),
-		percentile(s.Latencies, 0.95),
-		percentile(s.Latencies, 0.99),
-		percentile(s.Latencies, 1.0),
+		p.P50, p.P95, p.P99, p.Max,
 	)
 	if elapsed > 0 {
 		fmt.Printf("Throughput: %.0f req/s\n",
