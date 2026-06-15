@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -94,8 +95,13 @@ func run(req RequestSpec, concurrency, total int, timeout time.Duration) Summary
 		close(results)
 	}()
 
+	// live progress: redraw from the atomic counter until the run completes.
+	stopProgress := startProgress(os.Stdout, &completed, total)
+
 	// fan-in: collect on the main goroutine until results is closed.
-	return collect(results)
+	s := collect(results)
+	stopProgress() // halt and paint the final frame before the summary prints
+	return s
 }
 
 // collect drains the results channel into a Summary. It is the single reader,
