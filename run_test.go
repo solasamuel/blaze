@@ -27,7 +27,16 @@ func startWorker(ctx context.Context, jobs chan Job, results chan Result, spec R
 	var wg sync.WaitGroup
 	var completed int64
 	wg.Add(1)
-	go worker(ctx, jobs, results, &http.Client{Timeout: 5 * time.Second}, spec, &completed, &wg)
+	go worker(workerDeps{
+		ctx:       ctx,
+		jobs:      jobs,
+		results:   results,
+		client:    &http.Client{Timeout: 5 * time.Second},
+		req:       spec,
+		timeout:   5 * time.Second,
+		completed: &completed,
+		wg:        &wg,
+	})
 	return &wg
 }
 
@@ -104,7 +113,7 @@ func TestRun_CountMatches(t *testing.T) {
 	srv := okServer()
 	defer srv.Close()
 
-	s := run(specFor(srv.URL), 50, 1000, 5*time.Second)
+	s := run(runOpts{Req: specFor(srv.URL), Concurrency: 50, Requests: 1000, Timeout: 5 * time.Second})
 	if s.Total != 1000 {
 		t.Fatalf("Total = %d, want 1000", s.Total)
 	}
@@ -118,7 +127,7 @@ func TestRun_SingleWorkerSingleRequest(t *testing.T) {
 	srv := okServer()
 	defer srv.Close()
 
-	s := run(specFor(srv.URL), 1, 1, 5*time.Second)
+	s := run(runOpts{Req: specFor(srv.URL), Concurrency: 1, Requests: 1, Timeout: 5 * time.Second})
 	if s.Total != 1 {
 		t.Fatalf("Total = %d, want 1", s.Total)
 	}
@@ -130,7 +139,7 @@ func TestRun_NoGoroutineLeak(t *testing.T) {
 	defer srv.Close()
 
 	before := runtimeNumGoroutine()
-	_ = run(specFor(srv.URL), 10, 200, 5*time.Second)
+	_ = run(runOpts{Req: specFor(srv.URL), Concurrency: 10, Requests: 200, Timeout: 5 * time.Second})
 
 	// allow scheduled goroutines to wind down
 	deadline := time.Now().Add(2 * time.Second)
@@ -141,4 +150,107 @@ func TestRun_NoGoroutineLeak(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Errorf("goroutines did not return to baseline: before=%d after=%d", before, runtimeNumGoroutine())
+}
+
+// TC-4.2.a — a slow endpoint exceeding the timeout produces a timeout-classified
+// error.
+func TestRun_SlowEndpointTimesOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	s := run(runOpts{Req: specFor(srv.URL), Concurrency: 2, Requests: 4, Timeout: 100 * time.Millisecond})
+	if s.Errors != 4 {
+		t.Fatalf("Errors = %d, want 4 (all timed out)", s.Errors)
+	}
+	if got := s.ErrorKinds[errTimeout]; got != 4 {
+		t.Errorf("timeout errors = %d, want 4 (kinds=%v)", got, s.ErrorKinds)
+	}
+}
+
+// TC-4.2.b — each request is built with a context that is cancelled when run
+// returns, so the server observes cancellation rather than a leaked request.
+func TestRun_RequestContextCancelledOnReturn(t *testing.T) {
+	cancelled := make(chan struct{}, 16)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Slow handler: returns only if the request context is cancelled.
+		select {
+		case <-time.After(3 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			select {
+			case cancelled <- struct{}{}:
+			default:
+			}
+		}
+	}))
+	defer srv.Close()
+
+	// Short per-request timeout: requests time out, cancelling their contexts.
+	_ = run(runOpts{Req: specFor(srv.URL), Concurrency: 2, Requests: 2, Timeout: 100 * time.Millisecond})
+
+	select {
+	case <-cancelled:
+		// server saw at least one cancelled request context — good.
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never observed a cancelled request context")
+	}
+}
+
+// TC-4.3.a — duration mode stops feeding when the window elapses, returns
+// promptly, and completes a positive number of requests.
+func TestRun_DurationModeStopsOnWindow(t *testing.T) {
+	srv := okServer()
+	defer srv.Close()
+
+	start := time.Now()
+	s := run(runOpts{
+		Req:         specFor(srv.URL),
+		Concurrency: 10,
+		Duration:    300 * time.Millisecond,
+		Timeout:     5 * time.Second,
+	})
+	elapsed := time.Since(start)
+
+	if s.Total == 0 {
+		t.Fatal("duration mode completed 0 requests, want > 0")
+	}
+	// Should finish shortly after the window, not hang.
+	if elapsed > 3*time.Second {
+		t.Errorf("duration run took %v, expected ~window + drain", elapsed)
+	}
+}
+
+// TC-4.3.b — duration mode ignores --requests: the run is bounded by time, not
+// by the (small) request count.
+func TestRun_DurationModeIgnoresRequests(t *testing.T) {
+	srv := okServer()
+	defer srv.Close()
+
+	s := run(runOpts{
+		Req:         specFor(srv.URL),
+		Concurrency: 10,
+		Requests:    3, // would be a tiny run in count mode
+		Duration:    250 * time.Millisecond,
+		Timeout:     5 * time.Second,
+	})
+
+	// In 250ms against a local server we expect many more than 3 requests.
+	if s.Total <= 3 {
+		t.Errorf("Total = %d, expected duration mode to far exceed the 3-request count", s.Total)
+	}
+}
+
+// TC-4.4.a — the transport reuses connections: MaxIdleConnsPerHost == concurrency.
+func TestNewTransport_MaxIdleConnsPerHost(t *testing.T) {
+	for _, c := range []int{1, 10, 50} {
+		if got := newTransport(c).MaxIdleConnsPerHost; got != c {
+			t.Errorf("newTransport(%d).MaxIdleConnsPerHost = %d, want %d", c, got, c)
+		}
+	}
 }
