@@ -101,6 +101,9 @@ func parseArgs(args []string) (config, error) {
 
 func main() {
 	cfg, err := parseArgs(os.Args[1:])
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0) // -h/--help already printed usage; a help request is success.
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "blaze:", err)
 		os.Exit(2)
