@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"testing"
 	"time"
 )
@@ -61,5 +63,14 @@ func TestParseArgs_Duration(t *testing.T) {
 	}
 	if cfg.duration != 5*time.Second {
 		t.Errorf("duration = %v, want 5s", cfg.duration)
+	}
+}
+
+// TC-5.2.a — `blaze --help` is a success: parseArgs surfaces flag.ErrHelp so
+// main can exit 0 after the usage text is printed.
+func TestParseArgs_HelpReturnsErrHelp(t *testing.T) {
+	_, err := parseArgs([]string{"--help"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("parseArgs(--help) err = %v, want flag.ErrHelp", err)
 	}
 }
