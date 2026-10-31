@@ -46,6 +46,16 @@ func throughput(count int, elapsed time.Duration) float64 {
 	return float64(count) / elapsed.Seconds()
 }
 
+// roundLatency trims a duration to a readable precision for the summary:
+// whole milliseconds at or above 1ms ("42ms" rather than "41.564583ms"), and
+// whole microseconds below that so fast local targets don't print "0s".
+func roundLatency(d time.Duration) time.Duration {
+	if d >= time.Millisecond {
+		return d.Round(time.Millisecond)
+	}
+	return d.Round(time.Microsecond)
+}
+
 // errorLabels gives the breakdown a human-readable name per kind.
 var errorLabels = map[string]string{
 	"timeout": "timeout",
@@ -119,7 +129,7 @@ func formatSummary(s Summary, elapsed time.Duration) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "\nLatency:   p50  %v   p95  %v   p99  %v   max  %v\n",
-		p.P50, p.P95, p.P99, p.Max)
+		roundLatency(p.P50), roundLatency(p.P95), roundLatency(p.P99), roundLatency(p.Max))
 
 	tput := throughput(len(s.Latencies), elapsed)
 	fmt.Fprintf(&b, "Throughput: %s req/s\n", formatThousands(int(tput)))

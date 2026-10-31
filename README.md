@@ -7,6 +7,8 @@ measures the latency of each, and reports percentiles (p50/p95/p99/max),
 throughput, and an error breakdown. While running it shows a live, in-place
 terminal progress display.
 
+Example output (illustrative numbers):
+
 ```
 $ blaze --url https://api.example.com/products \
         --concurrency 50 --requests 1000 \
@@ -26,8 +28,13 @@ $ blaze --url https://api.example.com/products \
 go install github.com/solasamuel/blaze@latest
 ```
 
-This places a `blaze` binary in `$(go env GOPATH)/bin` (ensure it is on your
-`PATH`). Requires Go 1.21+.
+Requires Go 1.22+. This places a `blaze` binary in `$(go env GOPATH)/bin`. If
+`blaze` is then "command not found", add that directory to your `PATH`:
+
+```sh
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc   # or ~/.bashrc
+source ~/.zshrc
+```
 
 Or build from source:
 

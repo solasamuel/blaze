@@ -3,7 +3,7 @@
   "product": "blaze",
   "tagline": "Concurrent HTTP load tester with live latency percentiles",
   "documentVersion": "1.0",
-  "lastUpdated": "2026-06-14",
+  "lastUpdated": "2026-10-31",
   "author": "Sola Samuel",
   "links": {
     "testPlan": "./test-plan.json",
@@ -31,7 +31,7 @@
           "description": "Parse --url (required), --concurrency (default 10), --requests (default 100), --method, --body, --header (repeatable), --timeout (default 10s) into a RequestSpec.",
           "priority": "must",
           "estimate": 3,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "Missing --url exits non-zero with a usage message.",
             "Repeatable --header flags accumulate into RequestSpec.Headers.",
@@ -45,7 +45,7 @@
           "description": "Implement worker() consuming jobs <-chan Job and emitting results chan<- Result; performs the HTTP call, measures latency, always closes the response body, defers wg.Done().",
           "priority": "must",
           "estimate": 5,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "jobs is receive-only and results is send-only at the type level.",
             "Response body is closed on every success path to allow connection reuse.",
@@ -59,7 +59,7 @@
           "description": "run() starts N workers, feeds jobs in a separate goroutine that closes jobs, and a second goroutine that wg.Wait()s then closes results, while the main goroutine collects.",
           "priority": "must",
           "estimate": 5,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "Exactly `total` jobs are fed and exactly `total` results are collected.",
             "No goroutine leaks after run() returns (all workers exit, both channels close).",
@@ -73,7 +73,7 @@
           "description": "collect() ranges over results, tallies totals/errors, classifies error kinds, and accumulates latencies into a Summary.",
           "priority": "must",
           "estimate": 3,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "Summary.Total equals successes plus errors.",
             "Error results contribute to ErrorKinds but not to Latencies.",
@@ -97,7 +97,7 @@
           "description": "percentile(sorted, p) returns the value at index (len-1)*p in the sorted slice; compute p50/p95/p99/max.",
           "priority": "must",
           "estimate": 3,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "Empty input returns 0 rather than panicking.",
             "p50/p95/p99 select the correct index on a known sorted slice.",
@@ -111,7 +111,7 @@
           "description": "Compute throughput as requests/elapsed and render the final summary: latency percentiles, throughput, and error breakdown by kind.",
           "priority": "must",
           "estimate": 2,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "Throughput equals total successful requests divided by wall-clock elapsed.",
             "Error breakdown lists each kind with its count.",
@@ -135,7 +135,7 @@
           "description": "A shared int64 incremented with atomic.AddInt64 by every worker after each request; read with atomic.LoadInt64.",
           "priority": "must",
           "estimate": 2,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "Counter is updated lock-free with sync/atomic.",
             "Final counter value equals total requests under -race.",
@@ -149,7 +149,7 @@
           "description": "A progress goroutine on a 100ms ticker reads the atomic counter and overwrites the current line with \\r, drawing a bar and done/total.",
           "priority": "must",
           "estimate": 3,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "progressBar(done, total) renders proportional fill and clamps at 100%.",
             "Display updates on the same terminal line (no scroll).",
@@ -173,7 +173,7 @@
           "description": "classifyError() maps errors to kinds using errors.Is(context.DeadlineExceeded), errors.As(net.Error)+Timeout(), and a connection-refused check, defaulting to \"other\".",
           "priority": "must",
           "estimate": 3,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "context.DeadlineExceeded classifies as \"timeout\".",
             "A net.Error whose Timeout() is true classifies as \"timeout\".",
@@ -187,7 +187,7 @@
           "description": "Each request is built with http.NewRequestWithContext and bounded by --timeout via the http.Client.Timeout and a cancelable context.",
           "priority": "must",
           "estimate": 2,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "A slow endpoint exceeding --timeout produces a timeout-classified error.",
             "The context is cancelled (defer cancel) when run() returns."
@@ -200,7 +200,7 @@
           "description": "When --duration is set, feed jobs in a loop until a context timeout fires, then close jobs — running for time instead of a fixed count.",
           "priority": "should",
           "estimate": 5,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "--duration and --requests are mutually understood; duration takes over feeding.",
             "Feeding stops and jobs closes promptly when the duration elapses.",
@@ -214,7 +214,7 @@
           "description": "Configure http.Transport.MaxIdleConnsPerHost = concurrency so keep-alive connections are reused across requests.",
           "priority": "should",
           "estimate": 2,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "MaxIdleConnsPerHost equals the configured concurrency.",
             "Response bodies are drained/closed so connections return to the pool."
@@ -237,7 +237,7 @@
           "description": "Usage examples, full flag reference, and an explanation of the fan-out/fan-in concurrency model with the diagram.",
           "priority": "should",
           "estimate": 2,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "README documents every flag with its default.",
             "README includes the fan-out/fan-in diagram and a comparison to hey/vegeta/k6."
@@ -250,7 +250,7 @@
           "description": "Module path github.com/solasamuel/blaze with a main package installable via `go install ...@latest`.",
           "priority": "could",
           "estimate": 1,
-          "status": "todo",
+          "status": "done",
           "acceptanceCriteria": [
             "go install github.com/solasamuel/blaze@latest produces a runnable `blaze` binary."
           ],
