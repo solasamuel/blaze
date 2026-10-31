@@ -78,11 +78,11 @@ func TestPercentile(t *testing.T) {
 		p     float64
 		want  time.Duration
 	}{
-		{"empty returns zero", nil, 0.95, 0},                                  // TC-2.1.a (Corner)
-		{"p50 of 100", hundred, 0.50, 50 * time.Millisecond},                  // TC-2.1.b (Boundary)
-		{"p95 of 100", hundred, 0.95, 95 * time.Millisecond},                  // TC-2.1.b
-		{"p99 of 100", hundred, 0.99, 99 * time.Millisecond},                  // TC-2.1.b
-		{"p100 is max via len-1", hundred, 1.0, 100 * time.Millisecond},       // TC-2.1.c (Off-by-one)
+		{"empty returns zero", nil, 0.95, 0},                                                        // TC-2.1.a (Corner)
+		{"p50 of 100", hundred, 0.50, 50 * time.Millisecond},                                        // TC-2.1.b (Boundary)
+		{"p95 of 100", hundred, 0.95, 95 * time.Millisecond},                                        // TC-2.1.b
+		{"p99 of 100", hundred, 0.99, 99 * time.Millisecond},                                        // TC-2.1.b
+		{"p100 is max via len-1", hundred, 1.0, 100 * time.Millisecond},                             // TC-2.1.c (Off-by-one)
 		{"single element any p", []time.Duration{7 * time.Millisecond}, 0.42, 7 * time.Millisecond}, // TC-2.1.d (Boundary)
 	}
 
@@ -153,7 +153,7 @@ func TestFormatThousands(t *testing.T) {
 	}{
 		{0, "0"},
 		{42, "42"},
-		{999, "999"},   // boundary: no separator
+		{999, "999"},    // boundary: no separator
 		{1000, "1,000"}, // off-by-one: first separator
 		{1240, "1,240"},
 		{1234567, "1,234,567"},
@@ -166,6 +166,23 @@ func TestFormatThousands(t *testing.T) {
 }
 
 // Integration of F-2.2: the full summary matches the spec layout.
+func TestRoundLatency(t *testing.T) {
+	tests := []struct {
+		in, want time.Duration
+	}{
+		{41564583 * time.Nanosecond, 42 * time.Millisecond},
+		{498502042 * time.Nanosecond, 499 * time.Millisecond},
+		{time.Millisecond, time.Millisecond},
+		{734567 * time.Nanosecond, 735 * time.Microsecond},
+		{0, 0},
+	}
+	for _, tc := range tests {
+		if got := roundLatency(tc.in); got != tc.want {
+			t.Errorf("roundLatency(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestFormatSummary_Layout(t *testing.T) {
 	lat := []time.Duration{}
 	for i := 0; i < 100; i++ {
